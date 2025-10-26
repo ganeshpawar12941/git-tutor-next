@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
+    "dev:full": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd ../backend && npm run dev",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",
+    "concurrently": "^9.2.1",
     "eslint": "8.57.1",
     "eslint-config-next": "14.2.4",
     "postcss": "^8.4.47",
