@@ -1,4 +1,6 @@
 import './globals.css';
+import { AuthProvider } from '@/lib/auth-context';
+
 export const metadata = {
   title: 'GIT-TUTOR',
   description: 'Learn Git and version control with GIT-TUTOR',
@@ -17,7 +19,9 @@ export default function RootLayout({ children }) {
         <link rel="icon" href="/logo.png" />
       </head>
       <body>
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

@@ -1,1 +1,7 @@
-{}
+{
+  "/course/[courseId]/page": "app/course/[courseId]/page.js",
+  "/login/page": "app/login/page.js",
+  "/profile/page": "app/profile/page.js",
+  "/page": "app/page.js",
+  "/forgot-password/page": "app/forgot-password/page.js"
+}

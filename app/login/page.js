@@ -1,38 +1,89 @@
 "use client";
+
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import Script from "next/script";
 import SiteNav from "@/components/SiteNav";
 import SiteFooter from "@/components/SiteFooter";
+import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
+  const router = useRouter();
+  const { login, register } = useAuth();
+
   const [isSignUp, setIsSignUp] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [userRole, setUserRole] = useState('student'); // student, teacher, admin
+  const [message, setMessage] = useState({ type: '', text: '' });
+
   const [formData, setFormData] = useState({
-    signin: { email: "", password: "", remember: false },
-    signup: { firstName: "", lastName: "", email: "", password: "", confirmPassword: "", terms: false },
+    signin: { email: "", password: "" },
+    signup: {
+      name: "",
+      email: "",
+      password: "",
+      confirmPassword: "",
+      adminKey: "",
+      terms: false
+    },
   });
+
   const [errors, setErrors] = useState({});
+
+  // Backend validation rules
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return "Please provide a valid email address.";
+    }
+
+    if (userRole === 'student' && !email.endsWith('@students.git.edu')) {
+      return "Student registration requires a @students.git.edu email address.";
+    }
+
+    if (userRole === 'teacher' && !email.endsWith('@git.edu')) {
+      return "Teacher registration requires a @git.edu email address.";
+    }
+
+    return null;
+  };
 
   const validateForm = (type) => {
     const newErrors = {};
 
     if (type === "signin") {
       if (!formData.signin.email) newErrors.signinEmail = "Email is required";
-      else if (!/\S+@\S+\.\S+/.test(formData.signin.email)) newErrors.signinEmail = "Please enter a valid email";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.signin.email)) {
+        newErrors.signinEmail = "Please enter a valid email";
+      }
       if (!formData.signin.password) newErrors.signinPassword = "Password is required";
-      else if (formData.signin.password.length < 6) newErrors.signinPassword = "Password must be at least 6 characters";
     }
 
     if (type === "signup") {
-      if (!formData.signup.firstName) newErrors.signupFirstName = "First name is required";
-      if (!formData.signup.lastName) newErrors.signupLastName = "Last name is required";
+      if (!formData.signup.name) newErrors.signupName = "Name is required";
+
       if (!formData.signup.email) newErrors.signupEmail = "Email is required";
-      else if (!/\S+@\S+\.\S+/.test(formData.signup.email)) newErrors.signupEmail = "Please enter a valid email";
+      else {
+        const emailError = validateEmail(formData.signup.email);
+        if (emailError) newErrors.signupEmail = emailError;
+      }
+
+      const minPasswordLength = userRole === 'admin' ? 8 : 6;
       if (!formData.signup.password) newErrors.signupPassword = "Password is required";
-      else if (formData.signup.password.length < 8) newErrors.signupPassword = "Password must be at least 8 characters";
+      else if (formData.signup.password.length < minPasswordLength) {
+        newErrors.signupPassword = `Password must be at least ${minPasswordLength} characters`;
+      }
+
       if (!formData.signup.confirmPassword) newErrors.signupConfirmPassword = "Please confirm your password";
-      else if (formData.signup.password !== formData.signup.confirmPassword) newErrors.signupConfirmPassword = "Passwords do not match";
+      else if (formData.signup.password !== formData.signup.confirmPassword) {
+        newErrors.signupConfirmPassword = "Passwords do not match";
+      }
+
+      if (userRole === 'admin' && !formData.signup.adminKey) {
+        newErrors.signupAdminKey = "Admin key is required";
+      }
+
       if (!formData.signup.terms) newErrors.signupTerms = "You must accept the terms and conditions";
     }
 
@@ -41,18 +92,110 @@ export default function LoginPage() {
   };
 
   const handleInputChange = (type, field, value) => {
-    setFormData((prev) => ({ ...prev, [type]: { ...prev[type], [field]: value } }));
-    const key = `${type}${field.charAt(0).toUpperCase() + field.slice(1)}`;
-    if (errors[key]) setErrors((prev) => ({ ...prev, [key]: "" }));
+    setFormData((prev) => ({
+      ...prev,
+      [type]: { ...prev[type], [field]: value }
+    }));
+
+    // Clear error for this field
+    const errorKey = `${type}${field.charAt(0).toUpperCase() + field.slice(1)}`;
+    if (errors[errorKey]) {
+      setErrors((prev) => ({ ...prev, [errorKey]: "" }));
+    }
+
+    // Clear message
+    if (message.text) setMessage({ type: '', text: '' });
   };
 
-  const handleSubmit = async (type, e) => {
+  const handleSignIn = async (e) => {
     e.preventDefault();
-    if (!validateForm(type)) return;
+    if (!validateForm("signin")) return;
+
     setIsLoading(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    window.location.href = "/courses";
-    setIsLoading(false);
+    setMessage({ type: '', text: '' });
+
+    try {
+      const response = await login({
+        email: formData.signin.email,
+        password: formData.signin.password
+      });
+
+      setMessage({ type: 'success', text: 'Login successful! Redirecting...' });
+
+      // Redirect based on user role
+      setTimeout(() => {
+        if (response.user.role === 'admin') {
+          router.push('/admin');
+        } else if (response.user.role === 'teacher') {
+          router.push('/teacher');
+        } else {
+          router.push('/courses');
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error('Login error:', error);
+      setMessage({
+        type: 'error',
+        text: error.message || 'Login failed. Please check your credentials.'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSignUp = async (e) => {
+    e.preventDefault();
+    if (!validateForm("signup")) return;
+
+    setIsLoading(true);
+    setMessage({ type: '', text: '' });
+
+    try {
+      const registerData = {
+        name: formData.signup.name,
+        email: formData.signup.email,
+        password: formData.signup.password,
+        role: userRole
+      };
+
+      if (userRole === 'admin') {
+        registerData.adminKey = formData.signup.adminKey;
+      }
+
+      const response = await register(registerData);
+
+      if (userRole === 'teacher') {
+        setMessage({
+          type: 'success',
+          text: response.message + ' Please check your email to verify your account.'
+        });
+      } else {
+        setMessage({
+          type: 'success',
+          text: response.message + ' You can now log in.'
+        });
+        // Auto-login for students and admins
+        if (response.token) {
+          setTimeout(() => {
+            if (userRole === 'admin') {
+              router.push('/admin');
+            } else {
+              router.push('/courses');
+            }
+          }, 2000);
+        }
+      }
+
+    } catch (error) {
+      console.error('Registration error:', error);
+      setMessage({
+        type: 'error',
+        text: error.message || 'Registration failed. Please try again.'
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -125,9 +268,32 @@ export default function LoginPage() {
           <div className="w-full lg:w-1/2 flex items-center justify-center p-8">
             <div className="w-full max-w-lg">
               <div className="flex bg-slate-800/60 backdrop-blur-sm p-2 rounded-2xl mb-8 border border-white/10 shadow-xl">
-                <button onClick={() => setIsSignUp(false)} disabled={isLoading} className={!isSignUp ? "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg transform scale-105" : "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 text-slate-400 hover:text-white hover:bg-white/10"}>Sign In</button>
-                <button onClick={() => setIsSignUp(true)} disabled={isLoading} className={isSignUp ? "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg transform scale-105" : "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 text-slate-400 hover:text-white hover:bg-white/10"}>Sign Up</button>
+                <button
+                  onClick={() => setIsSignUp(false)}
+                  disabled={isLoading}
+                  className={!isSignUp ? "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg transform scale-105" : "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 text-slate-400 hover:text-white hover:bg-white/10"}
+                >
+                  Sign In
+                </button>
+                <button
+                  onClick={() => setIsSignUp(true)}
+                  disabled={isLoading}
+                  className={isSignUp ? "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg transform scale-105" : "flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-300 text-slate-400 hover:text-white hover:bg-white/10"}
+                >
+                  Sign Up
+                </button>
               </div>
+
+              {/* Message Display */}
+              {message.text && (
+                <div className={`mb-6 p-4 rounded-xl border ${
+                  message.type === 'success'
+                    ? 'bg-green-500/10 border-green-500/20 text-green-400'
+                    : 'bg-red-500/10 border-red-500/20 text-red-400'
+                }`}>
+                  {message.text}
+                </div>
+              )}
 
               <div className="bg-slate-800/60 backdrop-blur-xl rounded-3xl p-10 shadow-2xl border border-white/10">
                 {/* SIGN IN */}
@@ -138,7 +304,7 @@ export default function LoginPage() {
                       <p className="text-slate-400">Continue your learning journey</p>
                     </div>
 
-                    <form onSubmit={(e) => handleSubmit("signin", e)} className="space-y-6">
+                    <form onSubmit={handleSignIn} className="space-y-6">
                       <div>
                         <label htmlFor="signin-email" className="block text-sm font-medium text-slate-300 mb-2">Email address</label>
                         <input
@@ -147,7 +313,7 @@ export default function LoginPage() {
                           value={formData.signin.email}
                           onChange={(e) => handleInputChange("signin", "email", e.target.value)}
                           className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signinEmail ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")}
-                          placeholder="you@example.com"
+                          placeholder="you@students.git.edu"
                         />
                         {errors.signinEmail && <p className="mt-2 text-sm text-red-400">{errors.signinEmail}</p>}
                       </div>
@@ -167,10 +333,10 @@ export default function LoginPage() {
 
                       <div className="flex items-center justify-between">
                         <label className="flex items-center">
-                          <input type="checkbox" checked={formData.signin.remember} onChange={(e) => handleInputChange("signin", "remember", e.target.checked)} className="rounded border-white/20 bg-white/10 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0" />
+                          <input type="checkbox" className="rounded border-white/20 bg-white/10 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0" />
                           <span className="ml-3 text-sm text-slate-400">Remember me</span>
                         </label>
-                        <Link href="#" className="text-sm text-indigo-400 hover:text-indigo-300 font-medium">Forgot password?</Link>
+                        <Link href="/forgot-password" className="text-sm text-indigo-400 hover:text-indigo-300 font-medium">Forgot password?</Link>
                       </div>
 
                       <button type="submit" disabled={isLoading} className="w-full bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 text-white font-semibold py-4 px-6 rounded-xl transition-all duration-300 flex items-center justify-center gap-2">
@@ -198,45 +364,122 @@ export default function LoginPage() {
                       <p className="text-slate-400">Start your development journey today</p>
                     </div>
 
-                    <form onSubmit={(e) => handleSubmit("signup", e)} className="space-y-6">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label htmlFor="signup-first" className="block text-sm font-medium text-slate-300 mb-2">First name</label>
-                          <input id="signup-first" type="text" value={formData.signup.firstName} onChange={(e) => handleInputChange("signup", "firstName", e.target.value)} className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupFirstName ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")} placeholder="John" />
-                          {errors.signupFirstName && <p className="mt-2 text-sm text-red-400">{errors.signupFirstName}</p>}
-                        </div>
+                    {/* User Role Selection */}
+                    <div>
+                      <label className="block text-sm font-medium text-slate-300 mb-3">I am a:</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { value: 'student', label: 'Student', desc: '@students.git.edu' },
+                          { value: 'teacher', label: 'Teacher', desc: '@git.edu' },
+                          { value: 'admin', label: 'Admin', desc: 'Admin Key Required' }
+                        ].map((role) => (
+                          <button
+                            key={role.value}
+                            type="button"
+                            onClick={() => setUserRole(role.value)}
+                            className={`p-3 rounded-xl border-2 transition-all duration-300 text-left ${
+                              userRole === role.value
+                                ? 'border-indigo-500 bg-indigo-500/20 text-indigo-300'
+                                : 'border-white/20 text-slate-400 hover:border-white/40 hover:text-white'
+                            }`}
+                          >
+                            <div className="font-medium">{role.label}</div>
+                            <div className="text-xs opacity-75">{role.desc}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
-                        <div>
-                          <label htmlFor="signup-last" className="block text-sm font-medium text-slate-300 mb-2">Last name</label>
-                          <input id="signup-last" type="text" value={formData.signup.lastName} onChange={(e) => handleInputChange("signup", "lastName", e.target.value)} className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupLastName ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")} placeholder="Doe" />
-                          {errors.signupLastName && <p className="mt-2 text-sm text-red-400">{errors.signupLastName}</p>}
-                        </div>
+                    <form onSubmit={handleSignUp} className="space-y-6">
+                      <div>
+                        <label htmlFor="signup-name" className="block text-sm font-medium text-slate-300 mb-2">
+                          Full Name
+                        </label>
+                        <input
+                          id="signup-name"
+                          type="text"
+                          value={formData.signup.name}
+                          onChange={(e) => handleInputChange("signup", "name", e.target.value)}
+                          className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupName ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")}
+                          placeholder="John Doe"
+                        />
+                        {errors.signupName && <p className="mt-2 text-sm text-red-400">{errors.signupName}</p>}
                       </div>
 
                       <div>
-                        <label htmlFor="signup-email" className="block text-sm font-medium text-slate-300 mb-2">Email address</label>
-                        <input id="signup-email" type="email" value={formData.signup.email} onChange={(e) => handleInputChange("signup", "email", e.target.value)} className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupEmail ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")} placeholder="you@example.com" />
+                        <label htmlFor="signup-email" className="block text-sm font-medium text-slate-300 mb-2">
+                          Email address
+                        </label>
+                        <input
+                          id="signup-email"
+                          type="email"
+                          value={formData.signup.email}
+                          onChange={(e) => handleInputChange("signup", "email", e.target.value)}
+                          className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupEmail ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")}
+                          placeholder={userRole === 'student' ? 'you@students.git.edu' : userRole === 'teacher' ? 'you@git.edu' : 'admin@git.edu'}
+                        />
                         {errors.signupEmail && <p className="mt-2 text-sm text-red-400">{errors.signupEmail}</p>}
                       </div>
 
                       <div>
-                        <label htmlFor="signup-password" className="block text-sm font-medium text-slate-300 mb-2">Password</label>
-                        <input id="signup-password" type="password" value={formData.signup.password} onChange={(e) => handleInputChange("signup", "password", e.target.value)} className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupPassword ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")} placeholder="••••••••" />
+                        <label htmlFor="signup-password" className="block text-sm font-medium text-slate-300 mb-2">
+                          Password
+                        </label>
+                        <input
+                          id="signup-password"
+                          type="password"
+                          value={formData.signup.password}
+                          onChange={(e) => handleInputChange("signup", "password", e.target.value)}
+                          className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupPassword ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")}
+                          placeholder={`•••••••• (${userRole === 'admin' ? '8' : '6'} characters minimum)`}
+                        />
                         {errors.signupPassword && <p className="mt-2 text-sm text-red-400">{errors.signupPassword}</p>}
                       </div>
 
                       <div>
-                        <label htmlFor="signup-confirm" className="block text-sm font-medium text-slate-300 mb-2">Confirm password</label>
-                        <input id="signup-confirm" type="password" value={formData.signup.confirmPassword} onChange={(e) => handleInputChange("signup", "confirmPassword", e.target.value)} className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupConfirmPassword ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")} placeholder="••••••••" />
+                        <label htmlFor="signup-confirm" className="block text-sm font-medium text-slate-300 mb-2">
+                          Confirm password
+                        </label>
+                        <input
+                          id="signup-confirm"
+                          type="password"
+                          value={formData.signup.confirmPassword}
+                          onChange={(e) => handleInputChange("signup", "confirmPassword", e.target.value)}
+                          className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupConfirmPassword ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")}
+                          placeholder="••••••••"
+                        />
                         {errors.signupConfirmPassword && <p className="mt-2 text-sm text-red-400">{errors.signupConfirmPassword}</p>}
                       </div>
 
+                      {userRole === 'admin' && (
+                        <div>
+                          <label htmlFor="signup-admin-key" className="block text-sm font-medium text-slate-300 mb-2">
+                            Admin Key
+                          </label>
+                          <input
+                            id="signup-admin-key"
+                            type="password"
+                            value={formData.signup.adminKey}
+                            onChange={(e) => handleInputChange("signup", "adminKey", e.target.value)}
+                            className={"w-full px-4 py-3 bg-white/10 border rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 transition-all duration-300 " + (errors.signupAdminKey ? "border-red-500 focus:ring-red-500" : "border-white/20 focus:ring-indigo-500 focus:border-indigo-500")}
+                            placeholder="Enter admin key"
+                          />
+                          {errors.signupAdminKey && <p className="mt-2 text-sm text-red-400">{errors.signupAdminKey}</p>}
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between">
                         <label className="flex items-center">
-                          <input id="signup-terms" type="checkbox" checked={formData.signup.terms} onChange={(e) => handleInputChange("signup", "terms", e.target.checked)} className={"rounded border-white/20 bg-white/10 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 " + (errors.signupTerms ? "border-red-500" : "")} />
+                          <input
+                            id="signup-terms"
+                            type="checkbox"
+                            checked={formData.signup.terms}
+                            onChange={(e) => handleInputChange("signup", "terms", e.target.checked)}
+                            className={"rounded border-white/20 bg-white/10 text-indigo-600 focus:ring-indigo-500 focus:ring-offset-0 " + (errors.signupTerms ? "border-red-500" : "")}
+                          />
                           <span className="ml-3 text-sm text-slate-400">I agree to the Terms</span>
                         </label>
-                        <Link href="#" className="text-sm text-indigo-400 hover:text-indigo-300 font-medium">View Terms</Link>
+                        <Link href="/terms" className="text-sm text-indigo-400 hover:text-indigo-300 font-medium">View Terms</Link>
                       </div>
                       {errors.signupTerms && <p className="text-sm text-red-400">{errors.signupTerms}</p>}
 
@@ -250,7 +493,7 @@ export default function LoginPage() {
                             Creating account...
                           </>
                         ) : (
-                          "Create Account"
+                          `Create ${userRole.charAt(0).toUpperCase() + userRole.slice(1)} Account`
                         )}
                       </button>
                     </form>
@@ -260,7 +503,7 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
-      </div> 
+      </div>
 
       <SiteFooter />
       <Script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.6.0/js/all.min.js" strategy="afterInteractive" />
